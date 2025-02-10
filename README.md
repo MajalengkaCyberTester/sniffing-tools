@@ -23,7 +23,11 @@ Sebelum menjalankan skrip ini, pastikan Python telah terinstal pada sistem Anda.
 
 2. **Instal dependensi yang diperlukan:**
    ```bash
-   pip install -r requirements.txt
+   pip install scapy
+   pip install netifaces
+   pip install colorama
+   pip install twisted==21.2.0
+   pip install sslstrip --no-deps
    ```
 
 ## Penggunaan
