@@ -1,7 +1,6 @@
 # Network Security Toolkit - Majalengka Cyber Tester
 
-![gambar](https://github.com/user-attachments/assets/ebdc9b27-580c-4a16-9508-fdcf63450214)
-
+![Screenshot 2025-02-10 132803](https://github.com/user-attachments/assets/b691906b-7a90-48be-9851-7d3df15fc335)
 
 ## Deskripsi
 Toolkit ini dirancang untuk membantu dalam pemantauan jaringan, pemindaian perangkat, serangan ARP poisoning, dan penganalisisan paket. Skrip ini menggunakan `Scapy` untuk manipulasi paket dan `Colorama` untuk tampilan yang lebih menarik di terminal.
