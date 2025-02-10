@@ -42,7 +42,7 @@ Kemudian pilih antarmuka jaringan yang tersedia dan ikuti instruksi pada layar.
 ## Persyaratan Sistem
 - Python 3.x
 - Windows/Linux dengan akses administrator/root
-- Modul Python: `scapy`, `colorama`, `netifaces`
+- Modul Python: `scapy`, `colorama`, `netifaces`, `twisted==21.2.0`, `sslstrip`
 
 ## Peringatan
 **Gunakan alat ini hanya untuk tujuan pembelajaran dan pengujian keamanan yang sah. Penyalahgunaan alat ini dapat melanggar hukum yang berlaku.** Majalengka Cyber Tester tidak bertanggung jawab atas penyalahgunaan alat ini.
