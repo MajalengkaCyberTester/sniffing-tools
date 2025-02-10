@@ -17,7 +17,7 @@ Sebelum menjalankan skrip ini, pastikan Python telah terinstal pada sistem Anda.
 
 1. **Kloning repositori ini:**
    ```bash
-   git clone [https://github.com/username/reponame.git](https://github.com/MajalengkaCyberTester/sniffing-tools.git)
+   git clone https://github.com/MajalengkaCyberTester/sniffing-tools.git
    cd sniffing-tools
    ```
 
