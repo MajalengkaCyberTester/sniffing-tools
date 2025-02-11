@@ -7,34 +7,31 @@ import platform
 from colorama import init, Fore, Style
 import re
 import subprocess
+import importlib
 
 # Auto-install modules if not present
-def install_and_import(package, import_as=None):
-    try:
-        if import_as:
-            globals()[import_as] = __import__(package)
-        else:
-            __import__(package)
-    except ImportError:
-        print(Fore.YELLOW + f"[!] Installing missing package: {package}")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        if import_as:
-            globals()[import_as] = __import__(package)
-        else:
-            __import__(package)
-
-# Install required modules
+# Dictionary of required modules and their install names
 required_modules = {
     'scapy.all': 'scapy',
     'netifaces': 'netifaces',
     'colorama': 'colorama',
-    'twisted==21.2.0' : 'twisted==21.2.0',
+    'twisted': 'twisted==21.2.0',  # Only use module name for import
     'sslstrip': 'sslstrip'
-    
 }
 
+def install_and_import(module_name, package_name):
+    try:
+        importlib.import_module(module_name)
+        print(f"[+] Module '{module_name}' is already installed.")
+    except ImportError:
+        print(f"[!] Installing missing package: {package_name}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        print(f"[+] Successfully installed '{package_name}'.")
+
+# Install and import all required modules
 for module, package in required_modules.items():
-    install_and_import(package)
+    module_base = module.split('.')[0]  # Extract base module name
+    install_and_import(module_base, package)
 
 from scapy.all import *
 
